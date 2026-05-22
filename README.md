@@ -2,7 +2,8 @@
 
 
 ### Cache-Proxy Server
-THe idea is to built single web server pointed to a cache proxy server to measure latency savings, cache hit ratios, and evaluate cache eviction policies.
+
+It acts as an intermediate traffic shield between client browsers and external internet servers. At its core is a custom-engineered LRU (Least Recently Used) cache protected by mutual exclusion locks, ensuring safe data access under heavy, multi-threaded workloads.
 
 ### Request Lifecycle
 
