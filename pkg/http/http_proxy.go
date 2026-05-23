@@ -1,15 +1,16 @@
 package http
 
 import (
+	"context"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/drona-gyawali/cache-proxy/pkg/cache"
+	"github.com/drona-gyawali/cache-proxy/pkg/types"
 )
-
-// first layer : Network and proxy controller
-// second layer: Optimized Client Transport
 
 
 type  ProxyServerConfig struct {
@@ -20,7 +21,6 @@ type  ProxyServerConfig struct {
 
 func ProxyServerInit (capacity int) *ProxyServerConfig {
 	// TODO: make configuration purely dynamic
-
 	customTransport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -46,7 +46,84 @@ func ProxyServerInit (capacity int) *ProxyServerConfig {
 }
 
 
-// TODO: 
-func ProxyServer () {
-	
+func (P *ProxyServerConfig) ProxyServer (w http.ResponseWriter, r *http.Request) {
+	startTime := time.Now()
+	targetUrl := r.URL.Query().Get("url")
+	if targetUrl == "" {
+		http.Error(w, "The required 'url' paramenter is missing", http.StatusBadRequest)
+		return 
+	}
+
+	if entry, hit := P.Engine.G(targetUrl); hit {
+		for headerKey, value := range entry.Headers {
+			for _, val := range value {
+				w.Header().Add(headerKey, val)
+			}
+		}
+
+		w.Header().Set("X-Cache", "HIT")
+		w.WriteHeader(entry.StatusCode)
+		w.Write(entry.Body)
+
+		log.Printf("[CACHE HIT] URL: %s | Duration: %v", targetUrl, time.Since(startTime))
+		return
+	}
+
+
+	req , err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetUrl, nil)
+	if err != nil {
+		http.Error(w, "Request to origin failed", http.StatusBadGateway)
+		log.Printf("Origin server request failed via a proxy server, [AFFECTED URL : %s]", targetUrl)
+		return 
+	}
+
+	copyHeader(r.Header, req.Header)
+	req.Header.Del("Connection")
+	req.Header.Del("Keep-Alive")
+
+	resp, err := P.HTTPClient.Do(req)
+	if err != nil {
+		if context.Canceled == err {
+			log.Printf("User Disconnect the connection")
+			return 
+		}
+
+		http.Error(w, "Bad Gateway", http.StatusBadGateway)
+		return 
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err :=io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to laod bytes into memory")
+		return 
+	}
+
+	copyHeader(resp.Header, w.Header())
+	w.Header().Set("X-Cache", "MISS")
+
+	newEntry := types.CacheEntry{
+		StatusCode: resp.StatusCode,
+		Headers:    resp.Header,
+		Body:       bodyBytes,
+		CachedAt:   time.Now(),
+		ExpiresAt:  time.Now().Add(2 * time.Minute),
+	}
+
+	P.Engine.S(targetUrl, newEntry)
+
+
+	w.WriteHeader(resp.StatusCode)
+	w.Write(bodyBytes)
+
+	log.Printf("Cached Miss for %s", targetUrl)
+}
+
+
+func copyHeader(src, dst http.Header) {
+	for k , vv := range src {
+		for _, v := range vv{
+			dst.Add(k,v)
+		}
+	}
 }
