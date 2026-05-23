@@ -2,6 +2,8 @@ package http
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"log"
 	"net"
@@ -54,7 +56,8 @@ func (P *ProxyServerConfig) ProxyServer (w http.ResponseWriter, r *http.Request)
 		return 
 	}
 
-	if entry, hit := P.Engine.G(targetUrl); hit {
+	cacheKey := GenerateCacheKey(r, targetUrl)
+	if entry, hit := P.Engine.G(cacheKey); hit {
 		for headerKey, value := range entry.Headers {
 			for _, val := range value {
 				w.Header().Add(headerKey, val)
@@ -110,9 +113,13 @@ func (P *ProxyServerConfig) ProxyServer (w http.ResponseWriter, r *http.Request)
 		ExpiresAt:  time.Now().Add(2 * time.Minute),
 	}
 
-	P.Engine.S(targetUrl, newEntry)
+	P.Engine.S(cacheKey, newEntry)
 
 
+	w.Header().Del("Cache-Control")
+	w.Header().Del("ETag")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	
 	w.WriteHeader(resp.StatusCode)
 	w.Write(bodyBytes)
 
@@ -126,4 +133,17 @@ func copyHeader(src, dst http.Header) {
 			dst.Add(k,v)
 		}
 	}
+}
+
+
+func GenerateCacheKey(r *http.Request, targetURL string) string {
+	authHeader := r.Header.Get("Authorization")
+	cookieHeader := r.Header.Get("Cookie")
+	customApiKey := r.Header.Get("X-API-Key")
+
+	hasher := sha256.New()
+	hasher.Write([]byte(authHeader + "|" + cookieHeader + "|" + customApiKey))
+	identityHash := hex.EncodeToString(hasher.Sum(nil))
+	log.Printf("[CacheKey] - CrytoGraphic hash been generated")
+	return targetURL + ":" + identityHash
 }
