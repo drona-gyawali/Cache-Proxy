@@ -13,15 +13,18 @@ git clone https://github.com/drona-gyawali/Cache-Proxy.git
 // this will boot up the server
 go run cmd/cache_proxy/main.go
 
-```
 
-> **Open Browser and hit below requests intially it takes around > 50ms**
+```
+> **Note: Proxy server will required to have a secret token attach in every request as shown below, for more info please refer to .env.example**
+
+> **Open console and hit below requests intially it takes around > 50ms**
 
 > **Next time hit the same request it will load with in a less than  797.308µs**
 
-
 ```
-http://localhost:8080/proxy?url=https://dummyjson.com/comments
+curl -i \
+  -H "X-API: YOUR_TOKEN_HERE" \
+  "http://localhost:8080/proxy?url=https://dummyjson.com/comments"
 
 ```
 

@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"io"
 	"log"
@@ -18,10 +19,11 @@ import (
 type  ProxyServerConfig struct {
 	Engine     *cache.LRUCache
 	HTTPClient *http.Client
+	ProxyToken  string
 }
 
 
-func ProxyServerInit (capacity int) *ProxyServerConfig {
+func ProxyServerInit (capacity int, proxyToken string) *ProxyServerConfig {
 	// TODO: make configuration purely dynamic
 	customTransport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
@@ -44,12 +46,22 @@ func ProxyServerInit (capacity int) *ProxyServerConfig {
 			Transport: customTransport,
 			Timeout: 10 * time.Second,
 		},
+		ProxyToken: proxyToken,
+		
 	}
 }
 
 
 func (P *ProxyServerConfig) ProxyServer (w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
+
+	clientToken := r.Header.Get("X-API")
+	if clientToken == "" || subtle.ConstantTimeCompare([]byte(clientToken), []byte(P.ProxyToken)) != 1 {
+		log.Printf("[SECURITY] Invalid token used by server IP")
+		http.Error(w, "Unauthorized: Invalid Proxy Cluster Token", http.StatusUnauthorized)
+		return
+	}
+
 	targetUrl := r.URL.Query().Get("url")
 	if targetUrl == "" {
 		http.Error(w, "The required 'url' paramenter is missing", http.StatusBadRequest)
@@ -84,6 +96,7 @@ func (P *ProxyServerConfig) ProxyServer (w http.ResponseWriter, r *http.Request)
 	req.Header.Del("Connection")
 	req.Header.Del("Keep-Alive")
 
+	req.Header.Del("X-API")
 	resp, err := P.HTTPClient.Do(req)
 	if err != nil {
 		if context.Canceled == err {

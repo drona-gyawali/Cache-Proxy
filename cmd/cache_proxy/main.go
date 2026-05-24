@@ -1,15 +1,22 @@
 package main
 
-
 import (
 	"log"
 	"net/http"
+	"os"
 
-	proxyHTTP "github.com/drona-gyawali/cache-proxy/pkg/http" 
+	proxyHTTP "github.com/drona-gyawali/cache-proxy/pkg/http"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	proxyConfig := proxyHTTP.ProxyServerInit(5000)
+	err := godotenv.Load()
+	if err != nil {
+		log.Printf("Env file unable to load")
+		return
+	}
+
+	proxyConfig := proxyHTTP.ProxyServerInit(5000, os.Getenv("PROXY_TOKEN"))
 
 	mux := http.NewServeMux()
 
