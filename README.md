@@ -27,4 +27,4 @@ curl -i \
   "http://localhost:8080/proxy?url=https://dummyjson.com/comments"
 
 ```
-
+Forwarding domains should be registered in **config/local.yaml** otherwise you will see error. 

@@ -9,27 +9,28 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/drona-gyawali/cache-proxy/pkg/cache"
 	"github.com/drona-gyawali/cache-proxy/pkg/types"
 )
 
-
-type  ProxyServerConfig struct {
-	Engine     *cache.LRUCache
-	HTTPClient *http.Client
-	ProxyToken  string
+type ProxyServerConfig struct {
+	Engine         *cache.LRUCache
+	HTTPClient     *http.Client
+	ProxyToken     string
+	AllowedOrigins map[string]string
 }
 
-
-func ProxyServerInit (capacity int, proxyToken string) *ProxyServerConfig {
+func ProxyServerInit(capacity int, proxyToken string, allowedOrigins map[string]string) *ProxyServerConfig {
 	// TODO: make configuration purely dynamic
 	customTransport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			KeepAlive: 30 * time.Second,
-			Timeout: 5 * time.Second,
+			Timeout:   5 * time.Second,
 		}).DialContext,
 
 		MaxIdleConns:          100,
@@ -39,22 +40,26 @@ func ProxyServerInit (capacity int, proxyToken string) *ProxyServerConfig {
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
-
 	return &ProxyServerConfig{
 		Engine: cache.N(capacity),
 		HTTPClient: &http.Client{
 			Transport: customTransport,
-			Timeout: 10 * time.Second,
+			Timeout:   10 * time.Second,
 		},
-		ProxyToken: proxyToken,
-		
+		ProxyToken:     proxyToken,
+		AllowedOrigins: allowedOrigins,
 	}
 }
 
-
-func (P *ProxyServerConfig) ProxyServer (w http.ResponseWriter, r *http.Request) {
+func (P *ProxyServerConfig) ProxyServer(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
+	remoteAddr := r.Host
+
+	isVerified := P.VerifiedServerOrigins(w, remoteAddr)
+	if !isVerified {
+		return
+	}
 	clientToken := r.Header.Get("X-API")
 	if clientToken == "" || subtle.ConstantTimeCompare([]byte(clientToken), []byte(P.ProxyToken)) != 1 {
 		log.Printf("[SECURITY] Invalid token used by server IP")
@@ -65,7 +70,17 @@ func (P *ProxyServerConfig) ProxyServer (w http.ResponseWriter, r *http.Request)
 	targetUrl := r.URL.Query().Get("url")
 	if targetUrl == "" {
 		http.Error(w, "The required 'url' paramenter is missing", http.StatusBadRequest)
-		return 
+		return
+	}
+	parsedUrl, err := url.Parse(targetUrl)
+	if err != nil || parsedUrl.Scheme == "" || parsedUrl.Host == "" {
+		http.Error(w, "Invalid target URL format", http.StatusBadRequest)
+		return
+	}
+	originServer := parsedUrl.Scheme + "://" + parsedUrl.Host
+	originServer = strings.TrimSuffix(originServer, "/")
+	if !P.VerifiedServerOrigins(w, originServer) {
+		return
 	}
 
 	cacheKey := GenerateCacheKey(r, targetUrl)
@@ -84,12 +99,11 @@ func (P *ProxyServerConfig) ProxyServer (w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-
-	req , err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetUrl, nil)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetUrl, nil)
 	if err != nil {
 		http.Error(w, "Request to origin failed", http.StatusBadGateway)
 		log.Printf("Origin server request failed via a proxy server, [AFFECTED URL : %s]", targetUrl)
-		return 
+		return
 	}
 
 	copyHeader(r.Header, req.Header)
@@ -101,18 +115,18 @@ func (P *ProxyServerConfig) ProxyServer (w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		if context.Canceled == err {
 			log.Printf("User Disconnect the connection")
-			return 
+			return
 		}
 
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
-		return 
+		return
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err :=io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("Failed to laod bytes into memory")
-		return 
+		return
 	}
 
 	copyHeader(resp.Header, w.Header())
@@ -128,26 +142,23 @@ func (P *ProxyServerConfig) ProxyServer (w http.ResponseWriter, r *http.Request)
 
 	P.Engine.S(cacheKey, newEntry)
 
-
 	w.Header().Del("Cache-Control")
 	w.Header().Del("ETag")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	
+
 	w.WriteHeader(resp.StatusCode)
 	w.Write(bodyBytes)
 
 	log.Printf("Cached Miss for %s", targetUrl)
 }
 
-
 func copyHeader(src, dst http.Header) {
-	for k , vv := range src {
-		for _, v := range vv{
-			dst.Add(k,v)
+	for k, vv := range src {
+		for _, v := range vv {
+			dst.Add(k, v)
 		}
 	}
 }
-
 
 func GenerateCacheKey(r *http.Request, targetURL string) string {
 	authHeader := r.Header.Get("Authorization")
@@ -159,4 +170,24 @@ func GenerateCacheKey(r *http.Request, targetURL string) string {
 	identityHash := hex.EncodeToString(hasher.Sum(nil))
 	log.Printf("[CacheKey] - CrytoGraphic hash been generated")
 	return targetURL + ":" + identityHash
+}
+
+func (P *ProxyServerConfig) VerifiedServerOrigins(w http.ResponseWriter, remoteAddr string) bool {
+	allowed := false
+	for _, v := range P.AllowedOrigins {
+		if v == remoteAddr {
+			allowed = true
+			break
+		}
+	}
+
+	if !allowed {
+		error := "Access Blocked: Destination Server is not registered: " + remoteAddr
+		log.Printf(error)
+		http.Error(w, error, http.StatusUnauthorized)
+
+		return false
+	}
+
+	return true
 }

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/drona-gyawali/cache-proxy/pkg/config"
 	proxyHTTP "github.com/drona-gyawali/cache-proxy/pkg/http"
 	"github.com/joho/godotenv"
 )
@@ -16,15 +17,16 @@ func main() {
 		return
 	}
 
-	proxyConfig := proxyHTTP.ProxyServerInit(5000, os.Getenv("PROXY_TOKEN"))
+	cfg := config.MustLoad()
+	proxyConfig := proxyHTTP.ProxyServerInit(cfg.CAPACITY, os.Getenv("PROXY_TOKEN"), cfg.ALLOWED_CLUSTERS)
 
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/proxy", proxyConfig.ProxyServer)
 
-	log.Println("High-Performance Caching Proxy Booted Securely on :8080")
+	log.Printf("Cluster Booted %s", cfg.RUN_SERVER)
 
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	if err := http.ListenAndServe(cfg.RUN_SERVER, mux); err != nil {
 		log.Fatalf("Fatal system failure down inside HTTP network router: %v", err)
 	}
 }
