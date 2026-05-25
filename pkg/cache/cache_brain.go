@@ -16,7 +16,7 @@ const (
 
 
 type LRUCache struct {
-	Mu sync.Mutex
+	Mu sync.RWMutex
 	Capacity int
 	EvitList *list.List
 	CacheMap  map[string]*list.Element
@@ -35,11 +35,11 @@ func N (capacity int) *LRUCache {
 
 
 func (C *LRUCache) G  (key string) (types.CacheEntry, bool) {
-	C.Mu.Lock()
-	defer C.Mu.Unlock()
+	C.Mu.RLock()
 
 	node, exist := C.CacheMap[key]
 	if !exist {
+		C.Mu.RUnlock()
 		log.Printf("[GET]: Targeted Address MISS %s", key)
 		return types.CacheEntry{}, false
 	}
@@ -48,15 +48,27 @@ func (C *LRUCache) G  (key string) (types.CacheEntry, bool) {
 	entry := items.Value
 
 	if time.Now().After(entry.ExpiresAt) {
-		delete(C.CacheMap, key)
-		C.EvitList.Remove(node)
+		C.Mu.RUnlock()
+
+		C.Mu.Lock()
+		if currentNode, stillExists := C.CacheMap[key]; stillExists {
+            delete(C.CacheMap, key)
+            C.EvitList.Remove(currentNode)
+        }
+
+		C.Mu.Unlock()
 		log.Printf("[GET]: Targeted Address Expired %s", key)
 		return types.CacheEntry{}, false
 	}
+	C.Mu.RUnlock()
 
-	entry.Hits++
-	items.Value = entry
-	C.EvitList.MoveToFront(node)
+	C.Mu.Lock()
+	if node, exist = C.CacheMap[key]; exist {
+        items = node.Value.(*types.CacheItem)
+        items.Value.Hits++
+        C.EvitList.MoveToFront(node)
+    }
+    C.Mu.Unlock()
 	log.Printf("[GET] Target Address Hit %s", key)
 	return entry, true
 }

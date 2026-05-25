@@ -22,6 +22,7 @@ type ProxyServerConfig struct {
 	HTTPClient     *http.Client
 	ProxyToken     string
 	AllowedOrigins map[string]string
+	CacheQueue chan types.CacheItem
 }
 
 func ProxyServerInit(capacity int, proxyToken string, allowedOrigins map[string]string) *ProxyServerConfig {
@@ -40,7 +41,7 @@ func ProxyServerInit(capacity int, proxyToken string, allowedOrigins map[string]
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
-	return &ProxyServerConfig{
+	config :=  &ProxyServerConfig{
 		Engine: cache.N(capacity),
 		HTTPClient: &http.Client{
 			Transport: customTransport,
@@ -48,7 +49,20 @@ func ProxyServerInit(capacity int, proxyToken string, allowedOrigins map[string]
 		},
 		ProxyToken:     proxyToken,
 		AllowedOrigins: allowedOrigins,
+		CacheQueue: make(chan types.CacheItem, 1000),
 	}
+
+	// this kind of async queue processing is fancy but i am afraid that this might create a problem.
+	// user 1 and user 2 wants to cache a same url because we have async which has its own latencies
+	// might choke. I am dubious this is not scalable in prod.. however keeping it as it is.
+	go func() {
+		log.Printf("[SYSTEM] Async Cache Processing Worker Started.")
+		for item := range config.CacheQueue {
+			config.Engine.S(item.Key, item.Value)
+		}
+	}()
+
+	return config
 }
 
 func (P *ProxyServerConfig) ProxyServer(w http.ResponseWriter, r *http.Request) {
@@ -137,10 +151,20 @@ func (P *ProxyServerConfig) ProxyServer(w http.ResponseWriter, r *http.Request) 
 		Headers:    resp.Header,
 		Body:       bodyBytes,
 		CachedAt:   time.Now(),
-		ExpiresAt:  time.Now().Add(2 * time.Minute),
+		ExpiresAt:  time.Now().Add(5 * time.Minute),
 	}
 
-	P.Engine.S(cacheKey, newEntry)
+	cacheJob := types.CacheItem{
+		Key: cacheKey,
+		Value: newEntry,
+	}
+
+	select {
+	case P.CacheQueue <- cacheJob:
+		log.Printf("[SYSTEM] Cache Write Queued")
+	default:
+		log.Printf("[SYSTEM] Cache Queue Failed")
+	}
 
 	w.Header().Del("Cache-Control")
 	w.Header().Del("ETag")
@@ -160,10 +184,16 @@ func copyHeader(src, dst http.Header) {
 	}
 }
 
+// TODO: this is a heavy cpu intensive task we have to make algo very light to increase latency :)
 func GenerateCacheKey(r *http.Request, targetURL string) string {
 	authHeader := r.Header.Get("Authorization")
 	cookieHeader := r.Header.Get("Cookie")
 	customApiKey := r.Header.Get("X-API-Key")
+
+	// if it is global then the cache should be also global :)
+	if authHeader == "" && cookieHeader == "" && customApiKey == "" {
+		return targetURL
+	}
 
 	hasher := sha256.New()
 	hasher.Write([]byte(authHeader + "|" + cookieHeader + "|" + customApiKey))
