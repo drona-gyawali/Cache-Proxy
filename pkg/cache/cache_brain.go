@@ -9,32 +9,29 @@ import (
 	"github.com/drona-gyawali/cache-proxy/pkg/types"
 )
 
-
 const (
 	DEFAULT_CAP = 100
 )
 
-
 type LRUCache struct {
-	Mu sync.RWMutex
+	Mu       sync.RWMutex
 	Capacity int
 	EvitList *list.List
-	CacheMap  map[string]*list.Element
+	CacheMap map[string]*list.Element
 }
 
-
-
-func N (capacity int) *LRUCache {
-	if capacity < 5 {capacity = DEFAULT_CAP}
+func N(capacity int) *LRUCache {
+	if capacity < 5 {
+		capacity = DEFAULT_CAP
+	}
 	return &LRUCache{
-		Capacity : capacity,
-		EvitList : list.New(),
-		CacheMap : make(map[string]*list.Element),
+		Capacity: capacity,
+		EvitList: list.New(),
+		CacheMap: make(map[string]*list.Element),
 	}
 }
 
-
-func (C *LRUCache) G  (key string) (types.CacheEntry, bool) {
+func (C *LRUCache) G(key string) (types.CacheEntry, bool) {
 	C.Mu.RLock()
 
 	node, exist := C.CacheMap[key]
@@ -52,9 +49,9 @@ func (C *LRUCache) G  (key string) (types.CacheEntry, bool) {
 
 		C.Mu.Lock()
 		if currentNode, stillExists := C.CacheMap[key]; stillExists {
-            delete(C.CacheMap, key)
-            C.EvitList.Remove(currentNode)
-        }
+			delete(C.CacheMap, key)
+			C.EvitList.Remove(currentNode)
+		}
 
 		C.Mu.Unlock()
 		log.Printf("[GET]: Targeted Address Expired %s", key)
@@ -64,23 +61,22 @@ func (C *LRUCache) G  (key string) (types.CacheEntry, bool) {
 
 	C.Mu.Lock()
 	if node, exist = C.CacheMap[key]; exist {
-        items = node.Value.(*types.CacheItem)
-        items.Value.Hits++
-        C.EvitList.MoveToFront(node)
-    }
-    C.Mu.Unlock()
+		items = node.Value.(*types.CacheItem)
+		items.Value.Hits++
+		C.EvitList.MoveToFront(node)
+	}
+	C.Mu.Unlock()
 	log.Printf("[GET] Target Address Hit %s", key)
 	return entry, true
 }
 
-
-func (C *LRUCache) S (key string, entry types.CacheEntry) () {
+func (C *LRUCache) S(key string, entry types.CacheEntry) {
 	C.Mu.Lock()
 	defer C.Mu.Unlock()
 
-	if node , exists := C.CacheMap[key];exists {
+	if node, exists := C.CacheMap[key]; exists {
 		entryItems := node.Value.(*types.CacheItem)
-		entryItems.Value =  entry
+		entryItems.Value = entry
 		C.EvitList.MoveToFront(node)
 		log.Printf("[SET] Targeted Address Updated %s", key)
 		return
@@ -96,9 +92,8 @@ func (C *LRUCache) S (key string, entry types.CacheEntry) () {
 		}
 	}
 
-
 	newItem := &types.CacheItem{
-		Key:key,
+		Key:   key,
 		Value: entry,
 	}
 

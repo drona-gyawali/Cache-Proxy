@@ -23,11 +23,11 @@ func main() {
 		log.Printf("Env file unable to load")
 		return
 	}
-	
+
 	port := flag.Int("port", 8080, "The Proxy Cluster that run on the port.")
 	origin := flag.String("origin", "", "Target url you want to cahce")
 	flag.Parse()
-	
+
 	cfg := config.MustLoad()
 	proxyConfig := proxyHTTP.ProxyServerInit(cfg.CAPACITY, os.Getenv("PROXY_TOKEN"), cfg.ALLOWED_CLUSTERS)
 	mux := http.NewServeMux()
@@ -36,40 +36,38 @@ func main() {
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, syscall.SIGTERM, syscall.SIGINT)
 
-	
-	var addr string;
+	var addr string
 	if *port == 0 {
 		addr = cfg.RUN_SERVER
-	}else {
+	} else {
 		addr = fmt.Sprintf(":%d", *port)
 	}
 
 	log.Printf("[SYSTEM] Proxy Server Up %s", addr)
 
-	server := http.Server {
-		Addr: addr,
+	server := http.Server{
+		Addr:    addr,
 		Handler: mux,
 	}
 
-	go func () {
+	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Fatal system failure down inside HTTP network router: %v", err)
 		}
 	}()
 
-
 	if *origin != "" {
 		go func() {
 			time.Sleep(time.Millisecond * 100)
-			celebUrl := "http://0.0.0.0"+addr+"/proxy?"+"url="+*origin
+			celebUrl := "http://0.0.0.0" + addr + "/proxy?" + "url=" + *origin
 
 			req, err := http.NewRequest("GET", celebUrl, nil)
-			if err !=  nil{
-				log.Fatalf("[HTTP] Error triggering warm request %s", err )
+			if err != nil {
+				log.Fatalf("[HTTP] Error triggering warm request %s", err)
 				return
 			}
 
-			req.Header.Set("X-API",  os.Getenv("PROXY_TOKEN"))
+			req.Header.Set("X-API", os.Getenv("PROXY_TOKEN"))
 
 			client := &http.Client{}
 			res, err := client.Do(req)
@@ -88,11 +86,11 @@ func main() {
 			}
 		}()
 	}
-	<- done
+	<-done
 
 	log.Printf("[SYSTEM] Sutting down the server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second * 5)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
 	_err := server.Shutdown(ctx)
@@ -102,5 +100,5 @@ func main() {
 	}
 
 	log.Printf("[SYSTEM] Server closed")
-	
+
 }

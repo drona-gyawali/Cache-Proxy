@@ -22,7 +22,7 @@ type ProxyServerConfig struct {
 	HTTPClient     *http.Client
 	ProxyToken     string
 	AllowedOrigins map[string]string
-	CacheQueue chan types.CacheItem
+	CacheQueue     chan types.CacheItem
 }
 
 func ProxyServerInit(capacity int, proxyToken string, allowedOrigins map[string]string) *ProxyServerConfig {
@@ -41,7 +41,7 @@ func ProxyServerInit(capacity int, proxyToken string, allowedOrigins map[string]
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
-	config :=  &ProxyServerConfig{
+	config := &ProxyServerConfig{
 		Engine: cache.N(capacity),
 		HTTPClient: &http.Client{
 			Transport: customTransport,
@@ -49,7 +49,7 @@ func ProxyServerInit(capacity int, proxyToken string, allowedOrigins map[string]
 		},
 		ProxyToken:     proxyToken,
 		AllowedOrigins: allowedOrigins,
-		CacheQueue: make(chan types.CacheItem, 1000),
+		CacheQueue:     make(chan types.CacheItem, 1000),
 	}
 
 	// this kind of async queue processing is fancy but i am afraid that this might create a problem.
@@ -156,7 +156,7 @@ func (P *ProxyServerConfig) ProxyServer(w http.ResponseWriter, r *http.Request) 
 	}
 
 	cacheJob := types.CacheItem{
-		Key: cacheKey,
+		Key:   cacheKey,
 		Value: newEntry,
 	}
 
