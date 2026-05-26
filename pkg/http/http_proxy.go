@@ -83,7 +83,8 @@ func (P *ProxyServerConfig) ProxyServer(w http.ResponseWriter, r *http.Request) 
 
 	targetUrl := r.URL.Query().Get("url")
 	if targetUrl == "" {
-		http.Error(w, "The required 'url' paramenter is missing", http.StatusBadRequest)
+		log.Fatalf("The Required %s 'url' parameter is missing", targetUrl)
+		http.Error(w, "The required 'url' parameter is missing", http.StatusBadRequest)
 		return
 	}
 	parsedUrl, err := url.Parse(targetUrl)

@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -20,7 +23,11 @@ func main() {
 		log.Printf("Env file unable to load")
 		return
 	}
-
+	
+	port := flag.Int("port", 8080, "The Proxy Cluster that run on the port.")
+	origin := flag.String("origin", "", "Target url you want to cahce")
+	flag.Parse()
+	
 	cfg := config.MustLoad()
 	proxyConfig := proxyHTTP.ProxyServerInit(cfg.CAPACITY, os.Getenv("PROXY_TOKEN"), cfg.ALLOWED_CLUSTERS)
 	mux := http.NewServeMux()
@@ -29,10 +36,18 @@ func main() {
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, syscall.SIGTERM, syscall.SIGINT)
 
-	log.Printf("[SYSTEM] Proxy Server Up %s", cfg.RUN_SERVER)
+	
+	var addr string;
+	if *port == 0 {
+		addr = cfg.RUN_SERVER
+	}else {
+		addr = fmt.Sprintf(":%d", *port)
+	}
+
+	log.Printf("[SYSTEM] Proxy Server Up %s", addr)
 
 	server := http.Server {
-		Addr: cfg.RUN_SERVER,
+		Addr: addr,
 		Handler: mux,
 	}
 
@@ -41,6 +56,38 @@ func main() {
 			log.Fatalf("Fatal system failure down inside HTTP network router: %v", err)
 		}
 	}()
+
+
+	if *origin != "" {
+		go func() {
+			time.Sleep(time.Millisecond * 100)
+			celebUrl := "http://0.0.0.0"+addr+"/proxy?"+"url="+*origin
+
+			req, err := http.NewRequest("GET", celebUrl, nil)
+			if err !=  nil{
+				log.Fatalf("[HTTP] Error triggering warm request %s", err )
+				return
+			}
+
+			req.Header.Set("X-API",  os.Getenv("PROXY_TOKEN"))
+
+			client := &http.Client{}
+			res, err := client.Do(req)
+			if err != nil {
+				log.Fatalf("[HTTP] Error hiting the server %s", err)
+				return
+			}
+
+			defer res.Body.Close()
+
+			if res.StatusCode == http.StatusOK {
+				log.Printf("[HTTP] Cache is fully warmed up and ready")
+			} else {
+				body, _ := io.ReadAll(res.Body)
+				log.Printf("[HTTP] Error unable to cache : status code %d Error Message=%s", res.StatusCode, string(body))
+			}
+		}()
+	}
 	<- done
 
 	log.Printf("[SYSTEM] Sutting down the server...")

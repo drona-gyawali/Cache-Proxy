@@ -5,9 +5,9 @@ run_server: ":8080"
 # origin server is you own  proxy server and external server means the server which you wants to forward. 
 # It needs to be a key-value map to match your Go struct.
 allowed_cluster_domains:
-  origin_server1: "localhost:8080"
+  origin_server1: "0.0.0.0:8080"
   origin_server2: "localhost:3030"
-  origin_server3: "localhost:8900"
+  origin_server3: "localhost:8080"
   forwarding_server: "https://dummyjson.com"
 
 # Total RAM pages you are willing to use for a proxy server

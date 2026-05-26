@@ -37,7 +37,11 @@ Copy `.env.example` to `.env` and set your secret token. Register your allowed e
 go run cmd/cache_proxy/main.go
 
 ```
+4. **Warm the Cache**
+```bash
+go run cmd/cache_proxy/main.go --port 8080 --origin https://dummyjson.com/comments
 
+```
 
 4. **Test the API Cache:**
 ```bash
